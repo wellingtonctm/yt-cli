@@ -206,6 +206,8 @@ if [[ "$1" == "" ]]; then
     exit 1
 fi
 
+playlist_index=0
+
 while [[ "$1" != "" ]]; do
     case "$1" in
         -a | --add)
