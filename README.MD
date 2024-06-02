@@ -30,7 +30,7 @@ Then, make the script executable and run it with the help option to see the avai
 
 ```bash
 chmod +x yt-cli
-./yt-cli -h
+./main -h
 ```
 
 ## Available Commands
@@ -47,6 +47,7 @@ chmod +x yt-cli
 | `-i, --info`       | Display information about the current status.|
 | `-s, --shuffle`    | Shuffle the songs in the playlist.           |
 | `-k, --kill`       | Kill the currently running instance.         |
+| `--notify`         | Enable desktop notifications.                |
 | `-h, --help`       | Display this help message.                   |
 
 
@@ -55,32 +56,32 @@ chmod +x yt-cli
 1. Add a Playlist:
 
 ```bash
-./yt-cli -a <PLAYLIST_URL>
+./main -a <PLAYLIST_URL>
 ```
 
 2. List Playlists:
 
 ```bash
-./yt-cli -l
+./main -l
 ```
 
 3. Play a Playlist:
 
 ```bash
-./yt-cli -p 0
+./main -p 0
 ```
 
 4. Pause and Resume:
 
 ```bash
-./yt-cli -z  # Pause
-./yt-cli -r  # Resume
+./main -z  # Pause
+./main -r  # Resume
 ```
 
 4. Shuffle and Play:
 
 ```bash
-./yt-cli -s -p 0
+./main -s -p 0
 ```
 
 ## Configuration
@@ -95,5 +96,5 @@ The script creates configuration and playlist directories in your home folder:
 To stop the script and cleanup:
 
 ```bash
-./yt-cli -k
+./main -k
 ```

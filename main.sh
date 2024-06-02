@@ -28,19 +28,27 @@ function cleanup() {
         kill $(cat $song_pid_file)
     fi
 
-    notification_id=$(cat $nofication_pid_file 2> /dev/null)
     rm "$main_pid_file" "$song_info_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &> /dev/null
-    notify-send -h int:transient:1 -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "Stopped" &> /dev/null
+    
+    if [[ $notifications -eq 1 ]]; then
+        local notification_id=$(cat $nofication_pid_file 2> /dev/null)
+        notify-send -h int:transient:1 -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "Stopped" &> /dev/null
+    fi
+    
     exit 0
 }
 
 function send-message() {
+    [[ $notifications -eq 0 ]] && return 0
+
 	local text="$1"
 	local notification_id="$(cat $nofication_pid_file 2> /dev/null)"
 	notify-send -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "$text" > $nofication_pid_file
 }
 
 function send-error() {
+    [[ $notifications -eq 0 ]] && return 0
+
 	local text="$1"
 	local notification_id="$(cat $nofication_pid_file 2> /dev/null)"
 	notify-send -h int:transient:1 -p -r ${notification_id:-0} -i 'error' "$app_name" "$text" > $nofication_pid_file
@@ -167,6 +175,7 @@ function help-menu() {
     echo "  -i, --info        Display info about the current status."
     echo "  -s, --shuffle     Shuffle the songs in the playlist."
     echo "  -k, --kill        Kill the currently running instance."
+    echo "  --notify          Enable desktop notifications."
     echo "  -h, --help        Display this help message."
     echo
 }
@@ -248,6 +257,9 @@ while [[ "$1" != "" ]]; do
         -k | --kill)
             [[ -f $main_pid_file ]] && kill -0 "$(cat $main_pid_file)" && kill "$(cat $main_pid_file)"
             exit 0
+            ;;
+        --notify)
+            notifications=1
             ;;
         -h | --help)
             help-menu
