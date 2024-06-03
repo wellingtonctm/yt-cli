@@ -4,7 +4,7 @@ FILE='.config/yt-cli/song.info'
 MAX=50
 
 if [[ -f "$FILE" ]]; then
-    TITLE=$(head -n 1 "$FILE")
+    TITLE=$(sed ':a;N;$!ba;s/\n/ - /g' "$FILE")
 
     if [[ $(echo -n "$TITLE" | wc -m) -le $MAX ]]; then
         echo -n "${TITLE}"
