@@ -209,12 +209,6 @@ function main() {
     return 0
 }
 
-if [[ "$1" == "" ]]; then
-    show-error 'Wrong usage!' -n
-    show-error "Use ${cli_name} -h for help" -n
-    exit 1
-fi
-
 playlist_index=0
 
 while [[ "$1" != "" ]]; do
@@ -255,7 +249,12 @@ while [[ "$1" != "" ]]; do
             shuffle=1
             ;;
         -k | --kill)
-            [[ -f $main_pid_file ]] && kill -0 "$(cat $main_pid_file)" && kill "$(cat $main_pid_file)"
+            if [[ ! -f $main_pid_file ]]; then
+                show-error "No running instance found!" -n
+                exit 1
+            fi
+
+            kill "$(cat $main_pid_file)" &> /dev/null
             exit 0
             ;;
         --notify)
@@ -285,7 +284,7 @@ if [[ $daemon -eq 1 ]]; then
     echo $! > $main_pid_file
 else
     echo $$ > $main_pid_file
-    main | tee "$main_log_file"
+    main
 fi
 
 exit 0
