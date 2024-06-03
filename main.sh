@@ -13,6 +13,7 @@ main_log_file="$conf_dir/main.log"
 song_pid_file="$conf_dir/song.pid"
 nofication_pid_file="$conf_dir/notification.pid"
 song_info_file="$conf_dir/song.info"
+song_status_file="$conf_dir/song.status"
 list_info_file="$conf_dir/list.info"
 
 if [[ ! -d "$conf_dir" ]]; then
@@ -28,7 +29,7 @@ function cleanup() {
         kill $(cat $song_pid_file)
     fi
 
-    rm "$main_pid_file" "$song_info_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &> /dev/null
+    rm "$main_pid_file" "$song_status_file" "$song_info_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &> /dev/null
     
     if [[ $notifications -eq 1 ]]; then
         local notification_id=$(cat $nofication_pid_file 2> /dev/null)
@@ -129,17 +130,19 @@ function kill-song() {
 }
 
 function pause-song() {
-    [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill -STOP $(cat $song_pid_file)
+    [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill -STOP $(cat $song_pid_file) && echo 'PAUSED' > $song_status_file
     return 0
 }
 
 function resume-song() {
-    [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill -CONT $(cat $song_pid_file)
+    [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill -CONT $(cat $song_pid_file) && echo 'PLAYING' > $song_status_file
     return 0
 }
 
 function play-song() {
     trap kill-song RETURN
+
+    echo 'PLAYING' > $song_status_file
 
     mpv --audio-device=pulse --no-terminal --no-video --cache-secs=60 ${urls[$1]} &
     song_pid=$! && echo $song_pid > $song_pid_file
