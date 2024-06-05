@@ -43,6 +43,7 @@ chmod +x main.sh
 | `-p, --play INDEX` | Play the playlist at the specified index.    |
 | `-l, --list`       | List all available playlists.                |
 | `-n, --next`       | Skip to the next song.                       |
+| `-b, --prev`       | Play the previous song.                      |
 | `-z, --pause`      | Pause the currently playing song.            |
 | `-r, --resume`     | Resume the paused song.                      |
 | `-i, --info`       | Display information about the current status.|

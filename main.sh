@@ -11,10 +11,11 @@ playlists_dir="$conf_dir/.playlists"
 main_pid_file="$conf_dir/main.pid"
 main_log_file="$conf_dir/main.log"
 song_pid_file="$conf_dir/song.pid"
+song_socket_file="$conf_dir/song.socket"
 nofication_pid_file="$conf_dir/notification.pid"
 song_info_file="$conf_dir/song.info"
-song_status_file="$conf_dir/song.status"
 list_info_file="$conf_dir/list.info"
+current_index_file="$conf_dir/current.info"
 
 if [[ ! -d "$conf_dir" ]]; then
     mkdir -p "$conf_dir"
@@ -29,7 +30,7 @@ function cleanup() {
         kill $(cat $song_pid_file)
     fi
 
-    rm "$main_pid_file" "$song_status_file" "$song_info_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &> /dev/null
+    rm "$main_pid_file" "$current_index_file" "$song_info_file" "$song_socket_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &> /dev/null
     
     if [[ $notifications -eq 1 ]]; then
         local notification_id=$(cat $nofication_pid_file 2> /dev/null)
@@ -150,32 +151,34 @@ function kill-song() {
 }
 
 function pause-song() {
-    [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill -STOP $(cat $song_pid_file) && echo 'PAUSED' > $song_status_file
+    [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", true] }' | socat - "$song_socket_file" &> /dev/null
     return 0
 }
 
 function resume-song() {
-    [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill -CONT $(cat $song_pid_file) && echo 'PLAYING' > $song_status_file
+    [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", false] }' | socat - "$song_socket_file" &> /dev/null
+    return 0
+}
+
+function toggle-song() {
+    [[ -S "$song_socket_file" ]] && echo '{ "command": ["cycle", "pause"] }' | socat - "$song_socket_file" &> /dev/null
     return 0
 }
 
 function play-song() {
     trap kill-song RETURN
 
-    echo 'PLAYING' > $song_status_file
-
-    mpv --audio-device=pulse --no-terminal --no-video --cache-secs=60 ${urls[$1]} &
+    mpv --audio-device=pulse --no-terminal --no-video --input-ipc-server="$song_socket_file" --cache-secs=60 ${urls[$1]} &
     song_pid=$! && echo $song_pid > $song_pid_file
 
     echo -e "${songs[$1]}\n${channels[$1]}" | tee $song_info_file
     send-message "${songs[$1]} - ${channels[$1]}"
 
-    while kill -0 "$song_pid" &> /dev/null; do
-        sleep 1s;
-    done;
+    wait $song_pid
+    exit_code=$?
 
     echo
-    return 0
+    return $exit_code
 }
 
 function get-info() {
@@ -194,6 +197,8 @@ function help-menu() {
     echo "  -p, --play INDEX  Play the playlist at the specified index."
     echo "  -l, --list        List all available playlists."
     echo "  -n, --next        Skip to the next song."
+    echo "  -b, --prev        Play the previous song."
+    echo "  -t, --toggle      Pause/resume the currently song."
     echo "  -z, --pause       Pause the currently playing song."
     echo "  -r, --resume      Resume the paused song."
     echo "  -i, --info        Display info about the current status."
@@ -225,11 +230,45 @@ function main() {
 
     echo
 
-    for index in "${!songs[@]}"; do
-        play-song "$index"
+    echo 0 > "$current_index_file"
+
+    total=${#songs[@]}
+
+    while true; do
+        index=$(cat "$current_index_file")
+
+        if [[ $index -ge $total ]]; then
+            break;
+        fi
+
+        play-song "$index" &&
+        echo $(( index + 1 )) > "$current_index_file"
     done
 
     echo "PLAYLIST ENDED!"
+    return 0
+}
+
+function next-song() {
+    if [[ -f "$current_index_file" ]]; then
+        index=$(cat "$current_index_file")
+        echo $(( index + 1 )) > "$current_index_file"
+        kill-song
+    fi
+
+    return 0
+}
+
+function prev-song() {
+    if [[ -f "$current_index_file" ]]; then
+        index=$(cat "$current_index_file")
+
+        if [[ $index -gt 0  ]]; then
+            echo $(( index - 1 )) > "$current_index_file"
+            kill-song
+        fi
+    fi
+
     return 0
 }
 
@@ -259,7 +298,11 @@ while [[ "$1" != "" ]]; do
             exit 0
             ;;
         -n | --next)
-            kill-song
+            next-song
+            exit 0
+            ;;
+        -b | --prev)
+            prev-song
             exit 0
             ;;
         -z | --pause)
@@ -268,6 +311,10 @@ while [[ "$1" != "" ]]; do
             ;;
         -r | --resume)
             resume-song
+            exit 0
+            ;;
+        -t | --toggle)
+            toggle-song
             exit 0
             ;;
         -i | --info)
