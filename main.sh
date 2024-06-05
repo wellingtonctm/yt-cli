@@ -189,6 +189,7 @@ function help-menu() {
     echo
     echo "Options:"
     echo "  -a, --add URL     Add a new YouTube playlist."
+    echo "  --delete INDEX    Delete the playlist at the specified index."
     echo "  -d, --daemon      Run in background mode detached."
     echo "  -p, --play INDEX  Play the playlist at the specified index."
     echo "  -l, --list        List all available playlists."

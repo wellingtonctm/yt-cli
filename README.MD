@@ -29,8 +29,8 @@ cd <REPOSITORY_NAME>
 Then, make the script executable and run it with the help option to see the available commands:
 
 ```bash
-chmod +x yt-cli
-./main -h
+chmod +x main.sh
+./main.sh -h
 ```
 
 ## Available Commands
@@ -38,6 +38,7 @@ chmod +x yt-cli
 | Command            | Description                                  |
 |--------------------|----------------------------------------------|
 | `-a, --add URL`    | Add a new YouTube playlist.                  |
+| `--delete INDEX`   | Delete the playlist at the specified index.  |
 | `-d, --daemon`     | Run in background mode.                      |
 | `-p, --play INDEX` | Play the playlist at the specified index.    |
 | `-l, --list`       | List all available playlists.                |
@@ -56,32 +57,32 @@ chmod +x yt-cli
 1. Add a Playlist:
 
 ```bash
-./main -a <PLAYLIST_URL>
+./main.sh -a <PLAYLIST_URL>
 ```
 
 2. List Playlists:
 
 ```bash
-./main -l
+./main.sh -l
 ```
 
 3. Play a Playlist:
 
 ```bash
-./main -p 0
+./main.sh -p 0
 ```
 
 4. Pause and Resume:
 
 ```bash
-./main -z  # Pause
-./main -r  # Resume
+./main.sh -z  # Pause
+./main.sh -r  # Resume
 ```
 
 4. Shuffle and Play:
 
 ```bash
-./main -s -p 0
+./main.sh -s -p 0
 ```
 
 ## Configuration
@@ -96,5 +97,5 @@ The script creates configuration and playlist directories in your home folder:
 To stop the script and cleanup:
 
 ```bash
-./main -k
+./main.sh -k
 ```
