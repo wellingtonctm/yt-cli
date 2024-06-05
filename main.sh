@@ -52,7 +52,7 @@ function send-error() {
 
 	local text="$1"
 	local notification_id="$(cat $nofication_pid_file 2> /dev/null)"
-	notify-send -h int:transient:1 -p -r ${notification_id:-0} -i 'error' "$app_name" "$text" > $nofication_pid_file
+	notify-send -h int:transient:1 -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "$text" > $nofication_pid_file
 }
 
 function show-error() {
@@ -67,13 +67,33 @@ function show-error() {
 function add-playlist() {
 	url="$1"
 	playlist_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/playlist\?list=)?\K[A-Za-z0-9_-]+" <<< "$url")
-	content=$(yt-dlp --flat-playlist --print "%(playlist_title)s" --print "%(title)s" --print "%(channel)s" --print "%(url)s" "https://www.youtube.com/playlist?list=$playlist_id" | sed '5~4d')
+	content=$(yt-dlp --flat-playlist --print "%(playlist_title)s" --print "%(title)s" --print "%(channel)s" --print "%(url)s" "https://www.youtube.com/playlist?list=$playlist_id")
 
 	if [[ $? -eq 0 ]]; then
-		echo "$content" > "$playlists_dir/$playlist_id"
+		echo "$content" | sed '5~4d' > "$playlists_dir/$playlist_id"
+        send-message 'Playlist Added!'
 	else
 		show-error 'Invalid Playlist!'
 	fi
+}
+
+function delete-playlist() {
+    local playlist_index="$1"
+
+    if [[ ! "$playlist_index" =~ ^[0-9]+$ ]]; then
+        show-error "Select a valid playlist with: ${cli_name} --delete [INDEX]" -n
+        show-error "Use ${cli_name} -h for help" -n
+        exit 1
+    fi
+
+    playlists=( $(ls -t1  "$playlists_dir") )
+
+    if [[ ! -f "$playlists_dir/${playlists[$playlist_index]}" ]]; then
+        echo "Playlist not found."
+        exit 1;
+    fi
+
+    rm -f "$playlists_dir/${playlists[$playlist_index]}"
 }
 
 function get-songs() {
@@ -219,6 +239,11 @@ while [[ "$1" != "" ]]; do
         -a | --add)
             shift
             add-playlist "$1"
+            exit 0
+            ;;
+        --delete)
+            shift
+            delete-playlist "$1"
             exit 0
             ;;
         -d | --daemon)
