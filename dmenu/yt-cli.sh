@@ -13,6 +13,7 @@ else
 fi
 
 options+=("Add")
+options+=("Delete")
 
 options=$(printf "%s\n" "${options[@]}")
 
@@ -20,7 +21,11 @@ selected_option=$(echo -e "$options" | dmenu -nb '#000000' -nf '#595959' -sb '#4
 
 case $selected_option in
     "Add")
-        yt-cli -a "$(xclip -selection clipboard -o)"
+        yt-cli -a "$(xclip -selection clipboard -o | head -n 1)"
+        ;;
+    "Delete")
+        selected_playlist=$(yt-cli -l | dmenu -nb '#000000' -nf '#595959' -sb '#4d94ff' -sf '#000000'  -fn 'MesloLGS NF-10' -p "Choose a playlist:" | grep -Po '^[0-9]+')
+        yt-cli --delete $selected_playlist
         ;;
     "Play")
         selected_playlist=$(yt-cli -l | dmenu -nb '#000000' -nf '#595959' -sb '#4d94ff' -sf '#000000'  -fn 'MesloLGS NF-10' -p "Choose a playlist:" | grep -Po '^[0-9]+')
