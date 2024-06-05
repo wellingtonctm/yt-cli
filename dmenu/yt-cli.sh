@@ -1,15 +1,33 @@
 #!/bin/bash
 
+SOCKET='.config/yt-cli/song.socket'
+
+function is_paused() {
+    data=$(echo '{ "command": ["get_property", "pause"] }' | socat - "$SOCKET" | jq -r .data)
+
+    if [[ "$data" == "true" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
 options=()
 
-if [[ ! -f ~/.config/yt-cli/main.pid ]]; then
+if [[ -S "$SOCKET" ]]; then
+    if is_paused; then
+        options+=("Resume")
+    else
+        options+=("Pause")     
+        options+=("Next")
+        options+=("Prev")
+    fi
+
+    options+=("Stop")
+else
     options+=("Play")
     options+=("Shuffle")
-else
-    options+=("Next")
-    options+=("Pause")
-    options+=("Resume")
-    options+=("Stop")
+
 fi
 
 options+=("Add")
@@ -37,6 +55,9 @@ case $selected_option in
         ;;
     "Next")
         yt-cli -n
+        ;;
+    "Prev")
+        yt-cli -b
         ;;
     "Pause")
         yt-cli -z
