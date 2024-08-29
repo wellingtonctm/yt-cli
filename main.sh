@@ -5,7 +5,9 @@ cli_name='yt-cli'
 icon_name='youtube'
 
 base_dir=$(dirname "$(readlink -f "$(which "$0")")")
-conf_dir="$(getent passwd "$(logname)" | cut -d: -f6)/.config/${cli_name}"
+home_dir="$(getent passwd "$(logname)" | cut -d: -f6)"
+conf_dir="${home_dir}/.config/${cli_name}"
+cache_dir="${home_dir}/.cache/yt-cli"
 playlists_dir="$conf_dir/.playlists"
 
 main_pid_file="$conf_dir/main.pid"
@@ -16,9 +18,14 @@ nofication_pid_file="$conf_dir/notification.pid"
 song_info_file="$conf_dir/song.info"
 list_info_file="$conf_dir/list.info"
 current_index_file="$conf_dir/current.info"
+download_pid_file="$conf_dir/download.pid"
 
 if [[ ! -d "$conf_dir" ]]; then
     mkdir -p "$conf_dir"
+fi
+
+if [[ ! -d "$cache_dir" ]]; then
+    mkdir -p "$cache_dir"
 fi
 
 if [[ ! -d "$playlists_dir" ]]; then
@@ -72,9 +79,9 @@ function add-playlist() {
 
 	if [[ $? -eq 0 ]]; then
 		echo "$content" | sed '5~4d' > "$playlists_dir/$playlist_id"
-        send-message 'Playlist Added!'
+        send-message 'Playlist added!'
 	else
-		show-error 'Invalid Playlist!'
+		show-error 'Invalid playlist!'
 	fi
 }
 
@@ -94,7 +101,37 @@ function delete-playlist() {
         exit 1;
     fi
 
+    if [[ -d "${cache_dir}/${playlists[$playlist_index]}" ]]; then
+        rm -rf "${cache_dir}/${playlists[$playlist_index]}"
+    fi
+
     rm -f "$playlists_dir/${playlists[$playlist_index]}"
+
+    send-message 'Playlist deleted!'
+}
+
+function delete-download() {
+    local playlist_index="$1"
+
+    if [[ ! "$playlist_index" =~ ^[0-9]+$ ]]; then
+        show-error "Select a valid playlist with: ${cli_name} --delete-download [INDEX]" -n
+        show-error "Use ${cli_name} -h for help" -n
+        exit 1
+    fi
+
+    playlists=( $(ls -t1  "$playlists_dir") )
+
+    if [[ ! -f "$playlists_dir/${playlists[$playlist_index]}" ]]; then
+        echo "Playlist not found."
+        exit 1;
+    fi
+
+    if [[ ! -d "${cache_dir}/${playlists[$playlist_index]}" ]]; then
+        exit 0
+    fi
+
+    rm -rf "${cache_dir}/${playlists[$playlist_index]}"
+    send-message 'Download deleted!'
 }
 
 function get-songs() {
@@ -106,7 +143,8 @@ function get-songs() {
     fi
 
     IFS=$'\n'
-    playlist=( $(cat "$playlists_dir/${playlists[$1]}" | head -n 1) )
+    playlist_id="${playlists[$1]}"
+    playlist=$(cat "$playlists_dir/${playlists[$1]}" | head -n 1)
     songs=( $(cat "$playlists_dir/${playlists[$1]}" | sed -n '2~3p') )
     channels=( $(cat "$playlists_dir/${playlists[$1]}" | sed -n '3~3p') )
     urls=( $(cat "$playlists_dir/${playlists[$1]}" | sed -n '4~3p') )
@@ -165,14 +203,85 @@ function toggle-song() {
     return 0
 }
 
+function download-playlist() {
+    if [[ -f $download_pid_file ]] && kill -0 "$(cat $download_pid_file)" &> /dev/null; then
+        return 0
+    fi
+
+    echo $$ > $download_pid_file
+    local playlist_index="$1"
+
+    if [[ ! "$playlist_index" =~ ^[0-9]+$ ]]; then
+        show-error "Select a valid playlist with: ${cli_name} --delete [INDEX]" -n
+        show-error "Use ${cli_name} -h for help" -n
+        exit 1
+    fi
+
+    playlists=( $(ls -t1  "$playlists_dir") )
+
+    if [[ ! -f "$playlists_dir/${playlists[$playlist_index]}" ]]; then
+        echo "Playlist not found."
+        exit 1;
+    fi
+
+    local output_dir="${cache_dir}/${playlists[$playlist_index]}"
+    
+    mkdir -p "$output_dir"
+    get-songs "$playlist_index"
+    send-message 'Downloading...'
+    
+    local total=${#songs[@]}
+    local count=0
+
+    for index in "${!songs[@]}"; do
+        song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${urls[$index]}")
+
+        if [[ ! -f "${output_dir}/${song_id}" ]]; then
+            yt-dlp -f bestaudio -o "${output_dir}/%(id)s" "${urls[$index]}" &> /dev/null
+
+            if [[ $? != 0 ]]; then
+                rm -f "${output_dir}/${song_id}"
+                show-error "Couldn't download a song!"
+                continue
+            fi
+
+            
+            send-message "Downloaded $((index + 1))/${total}"
+        fi
+
+        (( count++ ))
+    done
+
+    local urls_str="${urls[@]}"
+
+    for video_id in $(ls -1 "$output_dir"); do
+        if ! grep -Pq "$video_id" <<< "$urls_str"; then
+            rm -f "${output_dir}/${video_id}"
+        fi
+    done
+
+    send-message "Downloaded ${count}/${total} songs!"
+    
+    return 0
+}
+
 function play-song() {
     trap kill-song RETURN
+    song_index="$1"
 
-    mpv --audio-device=pulse --no-terminal --no-video --input-ipc-server="$song_socket_file" --cache-secs=60 ${urls[$1]} &
+    song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${urls[$song_index]}")
+
+    if [[ -f "${cache_dir}/${playlist_id}/${song_id}" ]]; then
+        song="${cache_dir}/${playlist_id}/${song_id}"
+    else
+        song="${urls[$song_index]}"
+    fi
+
+    mpv --audio-device=pulse --no-terminal --no-video --input-ipc-server="$song_socket_file" --cache-secs=60 "$song" &
     song_pid=$! && echo $song_pid > $song_pid_file
 
-    echo -e "${songs[$1]}\n${channels[$1]}" | tee $song_info_file
-    send-message "${songs[$1]} - ${channels[$1]}"
+    echo -e "${songs[$song_index]}\n${channels[$song_index]}\n$((song_index + 1))/${#songs[@]}" | tee $song_info_file
+    send-message "${songs[$song_index]} - ${channels[$song_index]}"
 
     wait $song_pid
     exit_code=$?
@@ -221,11 +330,18 @@ function main() {
     get-songs "$playlist_index"
 
     echo "PLAYLIST: $playlist"
+
     if [[ $shuffle -eq 1 ]]; then
         echo "SHUFFLE: ON"
         shuffle-songs
     else
         echo "SHUFFLE: OFF"
+    fi
+
+    if [[ -d "${cache_dir}/${playlist_id}" ]]; then
+        echo "DOWNLOADED: YES"
+    else
+        echo "DOWNLOADED: NO"
     fi
 
     echo
@@ -286,6 +402,16 @@ while [[ "$1" != "" ]]; do
             delete-playlist "$1"
             exit 0
             ;;
+        --download)
+            shift
+            download-playlist "$1"
+            exit 0
+            ;;
+        --delete-download)
+            shift
+            delete-download "$1"
+            exit 0
+            ;;
         -d | --daemon)
             daemon=1
             ;;
@@ -341,7 +467,7 @@ while [[ "$1" != "" ]]; do
             exit 0
             ;;
         *)
-            show-error 'Invalid oprion!' -n
+            show-error 'Invalid option!' -n
             show-error "Use ${cli_name} -h for help" -n
             exit 1
             ;;
