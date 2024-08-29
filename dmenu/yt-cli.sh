@@ -1,6 +1,7 @@
 #!/bin/bash
 
 SOCKET='.config/yt-cli/song.socket'
+PID='.config/yt-cli/song.pid'
 
 function is_paused() {
     data=$(echo '{ "command": ["get_property", "pause"] }' | socat - "$SOCKET" | jq -r .data)
@@ -14,7 +15,7 @@ function is_paused() {
 
 options=()
 
-if [[ -S "$SOCKET" ]]; then
+if [[ -f "$PID" ]] && kill -0 $(cat "$PID") &> /dev/null; then
     if is_paused; then
         options+=("Resume")
     else
@@ -27,30 +28,41 @@ if [[ -S "$SOCKET" ]]; then
 else
     options+=("Play")
     options+=("Shuffle")
-
 fi
 
 options+=("Add")
+options+=("Download")
 options+=("Delete")
+options+=("Clear")
 
 options=$(printf "%s\n" "${options[@]}")
 
-selected_option=$(echo -e "$options" | dmenu -nb '#000000' -nf '#595959' -sb '#4d94ff' -sf '#000000'  -fn 'MesloLGS NF-10' -p "YouTube CLI:")
+selected_option=$(echo -e "$options" | dmenu-mod -p "YouTube CLI:")
+
+echo $selected_option
 
 case $selected_option in
     "Add")
-        yt-cli -a "$(xclip -selection clipboard -o | head -n 1)"
+        yt-cli --notify -a "$(xclip -selection clipboard -o | head -n 1)"
         ;;
     "Delete")
-        selected_playlist=$(yt-cli -l | dmenu -nb '#000000' -nf '#595959' -sb '#4d94ff' -sf '#000000'  -fn 'MesloLGS NF-10' -p "Choose a playlist:" | grep -Po '^[0-9]+')
-        yt-cli --delete $selected_playlist
+        selected_playlist=$(yt-cli -l | dmenu-mod -p "Choose a playlist:" | grep -Po '^[0-9]+')
+        yt-cli --notify --delete $selected_playlist
+        ;;
+    "Download")
+        selected_playlist=$(yt-cli -l | dmenu-mod -p "Choose a playlist:" | grep -Po '^[0-9]+')
+        yt-cli --notify --download $selected_playlist
+        ;;
+    "Clear")
+        selected_playlist=$(yt-cli -l | dmenu-mod -p "Choose a playlist:" | grep -Po '^[0-9]+')
+        yt-cli --notify --delete-download $selected_playlist
         ;;
     "Play")
-        selected_playlist=$(yt-cli -l | dmenu -nb '#000000' -nf '#595959' -sb '#4d94ff' -sf '#000000'  -fn 'MesloLGS NF-10' -p "Choose a playlist:" | grep -Po '^[0-9]+')
+        selected_playlist=$(yt-cli -l | dmenu-mod -p "Choose a playlist:" | grep -Po '^[0-9]+')
         yt-cli -p $selected_playlist -d 
         ;;
     "Shuffle")
-        selected_playlist=$(yt-cli -l | dmenu -nb '#000000' -nf '#595959' -sb '#4d94ff' -sf '#000000'  -fn 'MesloLGS NF-10' -p "Choose a playlist:" | grep -Po '^[0-9]+')
+        selected_playlist=$(yt-cli -l | dmenu-mod -p "Choose a playlist:" | grep -Po '^[0-9]+')
         yt-cli -p $selected_playlist -s -d 
         ;;
     "Next")
