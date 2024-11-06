@@ -203,64 +203,123 @@ function toggle-song() {
     return 0
 }
 
+function download-song() {
+    local playlist_dir=$1
+    local song_index=$2
+    local total_songs=$3
+    local song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${urls[$song_index]}")
+    local download_failed=false
+    local log_file=$(mktemp "${playlist_dir}/${song_id}.XXXXXX.log")
+
+    if [[ ! -f "${playlist_dir}/${song_id}" ]]; then
+        yt-dlp -f bestaudio -o "${playlist_dir}/%(id)s" "${urls[$song_index]}" &> "$log_file"
+
+        if [[ $? == 0 ]]; then
+            rm -f "$log_file"
+        else
+            rm -f "${playlist_dir}/${song_id}"
+            download_failed=true
+        fi
+    fi
+    
+    local success_count_file="${playlist_dir}/download_count.txt"
+    local failure_count_file="${playlist_dir}/fail_count.txt"
+    local lock_file="${playlist_dir}/download_lock"
+
+    {
+        flock 200
+
+        success_count=$(<"$success_count_file")
+        failure_count=$(<"$failure_count_file")
+
+        if [[ $download_failed == true ]]; then 
+            failure_count=$((failure_count + 1))
+            echo "$failure_count" > "$failure_count_file"
+        else
+            success_count=$((success_count + 1))
+            echo "$success_count" > "$success_count_file"
+        fi
+
+        send-message "Downloading...\nSuccess: ${success_count}\nFail: ${failure_count}\nTotal: ${total_songs}"
+    } 200>"$lock_file"
+}
+
 function download-playlist() {
     if [[ -f $download_pid_file ]] && kill -0 "$(cat $download_pid_file)" &> /dev/null; then
         return 0
     fi
 
     echo $$ > $download_pid_file
-    local playlist_index="$1"
+    local selected_playlist_index="$1"
 
-    if [[ ! "$playlist_index" =~ ^[0-9]+$ ]]; then
+    if [[ ! "$selected_playlist_index" =~ ^[0-9]+$ ]]; then
         show-error "Select a valid playlist with: ${cli_name} --delete [INDEX]" -n
         show-error "Use ${cli_name} -h for help" -n
         exit 1
     fi
 
-    playlists=( $(ls -t1  "$playlists_dir") )
+    playlists=( $(ls -t1 "$playlists_dir") )
 
-    if [[ ! -f "$playlists_dir/${playlists[$playlist_index]}" ]]; then
+    if [[ ! -f "$playlists_dir/${playlists[$selected_playlist_index]}" ]]; then
         echo "Playlist not found."
-        exit 1;
+        exit 1
     fi
 
-    local output_dir="${cache_dir}/${playlists[$playlist_index]}"
-    
-    mkdir -p "$output_dir"
-    get-songs "$playlist_index"
+    local playlist_dir="${cache_dir}/${playlists[$selected_playlist_index]}"
+    mkdir -p "$playlist_dir"
+    get-songs "$selected_playlist_index"
     send-message 'Downloading...'
-    
-    local total=${#songs[@]}
-    local count=0
 
-    for index in "${!songs[@]}"; do
-        song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${urls[$index]}")
+    echo "0" > "${playlist_dir}/download_count.txt"
+    echo "0" > "${playlist_dir}/fail_count.txt"
 
-        if [[ ! -f "${output_dir}/${song_id}" ]]; then
-            yt-dlp -f bestaudio -o "${output_dir}/%(id)s" "${urls[$index]}" &> /dev/null
+    rm -f "${playlist_dir}/"*.log
 
-            if [[ $? != 0 ]]; then
-                rm -f "${output_dir}/${song_id}"
-                show-error "Couldn't download a song!"
-                continue
-            fi
+    local total_songs=${#songs[@]}
+    local max_parallel_downloads=10
+    local active_downloads=0
 
-            
-            send-message "Downloaded $((index + 1))/${total}"
+    for song_index in "${!songs[@]}"; do
+        download-song "$playlist_dir" "$song_index" "$total_songs" &
+        ((active_downloads++))
+
+        if [[ $active_downloads -ge $max_parallel_downloads ]]; then
+            wait -n
+            ((active_downloads--))
         fi
-
-        (( count++ ))
     done
+
+    wait
+
+    local final_success_count
+    [[ -f "${playlist_dir}/download_count.txt" ]] && read -r final_success_count < "${playlist_dir}/download_count.txt"
+
+    local final_failure_count
+    [[ -f "${playlist_dir}/fail_count.txt" ]] && read -r final_failure_count < "${playlist_dir}/fail_count.txt"
+
+    send-message "Downloaded!\nSuccess: ${final_success_count}\nFail: ${final_failure_count}\nTotal: ${total_songs}"
 
     local urls_str="${urls[@]}"
+    local video_ids=()
 
-    for video_id in $(ls -1 "$output_dir"); do
-        if ! grep -Pq "$video_id" <<< "$urls_str"; then
-            rm -f "${output_dir}/${video_id}"
-        fi
+    for url in "${urls[@]}"; do
+        video_ids+=( $(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${url}") )
     done
 
-    send-message "Downloaded ${count}/${total} songs!"
+    for file_name in $(ls -1 "$playlist_dir"); do
+        local is_valid_video_id=false
+        
+        for video_id in "${video_ids[@]}"; do
+            if [[ "$video_id" == "$file_name" || "${video_id}.log" == "$file_name" ]]; then
+                is_valid_video_id=true
+                break
+            fi
+        done
+
+        if ! $is_valid_video_id; then
+            rm -f "${playlist_dir}/${file_name}"
+        fi
+    done
     
     return 0
 }
