@@ -27,6 +27,6 @@ if [[ -f "$PID" ]] && kill -0 $(cat "$PID") &> /dev/null; then
         echo -n "${TITLE:0:MAX-3}..."
     fi
 
-    echo " <fc=#000000> | </fc>"
+    echo ""
 fi
 
