@@ -32,6 +32,11 @@ if [[ ! -d "$playlists_dir" ]]; then
     mkdir -p "$playlists_dir"
 fi
 
+function refresh-slstatus() {
+    local slstatus_pid=$(pgrep -n slstatus)
+    kill -SIGRTMIN+1 $slstatus_pid &> /dev/null
+}
+
 function cleanup() {
     if [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null; then
         kill $(cat $song_pid_file)
@@ -39,6 +44,8 @@ function cleanup() {
 
     rm "$main_pid_file" "$current_index_file" "$song_info_file" "$song_socket_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &> /dev/null
     
+    refresh-slstatus
+
     if [[ $notifications -eq 1 ]]; then
         local notification_id=$(cat $nofication_pid_file 2> /dev/null)
         notify-send -h int:transient:1 -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "Stopped" &> /dev/null
@@ -185,21 +192,25 @@ function show-playlists() {
 
 function kill-song() {
     [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill $(cat $song_pid_file)
+    refresh-slstatus
     return 0
 }
 
 function pause-song() {
     [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", true] }' | socat - "$song_socket_file" &> /dev/null
+    refresh-slstatus
     return 0
 }
 
 function resume-song() {
     [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", false] }' | socat - "$song_socket_file" &> /dev/null
+    refresh-slstatus
     return 0
 }
 
 function toggle-song() {
     [[ -S "$song_socket_file" ]] && echo '{ "command": ["cycle", "pause"] }' | socat - "$song_socket_file" &> /dev/null
+    refresh-slstatus
     return 0
 }
 
@@ -340,6 +351,7 @@ function play-song() {
     song_pid=$! && echo $song_pid > $song_pid_file
 
     echo -e "${songs[$song_index]}\n${channels[$song_index]}\n$((song_index + 1))/${#songs[@]}" | tee $song_info_file
+    refresh-slstatus
     send-message "${songs[$song_index]} - ${channels[$song_index]}"
 
     wait $song_pid
