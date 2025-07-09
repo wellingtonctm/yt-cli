@@ -4,7 +4,7 @@ app_name='YouTube CLI'
 cli_name='yt-cli'
 icon_name='youtube'
 
-base_dir=$(dirname "$(readlink -f "$(which "$0")")")
+# base_dir=$(dirname "$(readlink -f "$(which "$0")")")
 home_dir="$(getent passwd "$(logname)" | cut -d: -f6)"
 conf_dir="${home_dir}/.config/${cli_name}"
 cache_dir="${home_dir}/.cache/yt-cli"
@@ -32,42 +32,38 @@ if [[ ! -d "$playlists_dir" ]]; then
     mkdir -p "$playlists_dir"
 fi
 
-function refresh-slstatus() {
-    local slstatus_pid=$(pgrep -n slstatus)
-    kill -SIGRTMIN+1 $slstatus_pid &> /dev/null
-}
-
 function cleanup() {
-    if [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null; then
-        kill $(cat $song_pid_file)
+    if [[ -f $song_pid_file ]] && kill -0 "$(cat "$song_pid_file")" &>/dev/null; then
+        kill "$(cat "$song_pid_file")"
     fi
 
-    rm "$main_pid_file" "$current_index_file" "$song_info_file" "$song_socket_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &> /dev/null
-    
-    refresh-slstatus
+    rm "$main_pid_file" "$current_index_file" "$song_info_file" "$song_socket_file" "$song_pid_file" "$nofication_pid_file" "$list_info_file" "$main_log_file" &>/dev/null
 
     if [[ $notifications -eq 1 ]]; then
-        local notification_id=$(cat $nofication_pid_file 2> /dev/null)
-        notify-send -h int:transient:1 -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "Stopped" &> /dev/null
+        local notification_id
+        notification_id=$(cat "$nofication_pid_file" 2>/dev/null)
+        notify-send -h int:transient:1 -p -r "${notification_id:-0}" -i "$icon_name" "$app_name" "Stopped" &>/dev/null
     fi
-    
+
     exit 0
 }
 
 function send-message() {
     [[ $notifications -eq 0 ]] && return 0
 
-	local text="$1"
-	local notification_id="$(cat $nofication_pid_file 2> /dev/null)"
-	notify-send -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "$text" > $nofication_pid_file
+    local text="$1"
+    local notification_id
+    notification_id="$(cat "$nofication_pid_file" 2>/dev/null)"
+    notify-send -p -r "${notification_id:-0}" -i "$icon_name" "$app_name" "$text" >"$nofication_pid_file"
 }
 
 function send-error() {
     [[ $notifications -eq 0 ]] && return 0
 
-	local text="$1"
-	local notification_id="$(cat $nofication_pid_file 2> /dev/null)"
-	notify-send -h int:transient:1 -p -r ${notification_id:-0} -i "$icon_name" "$app_name" "$text" > $nofication_pid_file
+    local text="$1"
+    local notification_id
+    notification_id="$(cat "$nofication_pid_file" 2>/dev/null)"
+    notify-send -h int:transient:1 -p -r "${notification_id:-0}" -i "$icon_name" "$app_name" "$text" >"$nofication_pid_file"
 }
 
 function show-error() {
@@ -80,16 +76,15 @@ function show-error() {
 }
 
 function add-playlist() {
-	url="$1"
-	playlist_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/playlist\?list=)?\K[A-Za-z0-9_-]+" <<< "$url")
-	content=$(yt-dlp --flat-playlist --print "%(playlist_title)s" --print "%(title)s" --print "%(channel)s" --print "%(url)s" "https://www.youtube.com/playlist?list=$playlist_id")
+    url="$1"
+    playlist_id=$(grep -Po "^(https://)?(www\.)?(music\.)?(youtube\.com/playlist\?list=)?\K[A-Za-z0-9_-]+" <<<"$url")
 
-	if [[ $? -eq 0 ]]; then
-		echo "$content" | sed '5~4d' > "$playlists_dir/$playlist_id"
+    if content=$(yt-dlp --flat-playlist --print "%(playlist_title)s" --print "%(title)s" --print "%(channel)s" --print "%(url)s" "https://www.youtube.com/playlist?list=$playlist_id"); then
+        echo "$content" | sed '5~4d' >"$playlists_dir/$playlist_id"
         send-message 'Playlist added!'
-	else
-		show-error 'Invalid playlist!'
-	fi
+    else
+        show-error 'Invalid playlist!'
+    fi
 }
 
 function delete-playlist() {
@@ -101,15 +96,15 @@ function delete-playlist() {
         exit 1
     fi
 
-    playlists=( $(ls -t1  "$playlists_dir") )
+    mapfile -t playlists < <(ls -t1 -- "$playlists_dir")
 
     if [[ ! -f "$playlists_dir/${playlists[$playlist_index]}" ]]; then
         echo "Playlist not found."
-        exit 1;
+        exit 1
     fi
 
-    if [[ -d "${cache_dir}/${playlists[$playlist_index]}" ]]; then
-        rm -rf "${cache_dir}/${playlists[$playlist_index]}"
+    if [[ -d "${cache_dir:?}/${playlists[$playlist_index]:?}" ]]; then
+        rm -rf "${cache_dir:?}/${playlists[$playlist_index]:?}"
     fi
 
     rm -f "$playlists_dir/${playlists[$playlist_index]}"
@@ -126,41 +121,50 @@ function delete-download() {
         exit 1
     fi
 
-    playlists=( $(ls -t1  "$playlists_dir") )
+    mapfile -t playlists < <(ls -t1 -- "$playlists_dir")
 
     if [[ ! -f "$playlists_dir/${playlists[$playlist_index]}" ]]; then
         echo "Playlist not found."
-        exit 1;
+        exit 1
     fi
 
     if [[ ! -d "${cache_dir}/${playlists[$playlist_index]}" ]]; then
         exit 0
     fi
 
-    rm -rf "${cache_dir}/${playlists[$playlist_index]}"
+    rm -rf "${cache_dir:?}/${playlists[$playlist_index]:?}"
     send-message 'Download deleted!'
 }
 
 function get-songs() {
-    playlists=( $(ls -t1  "$playlists_dir") )
+    mapfile -t playlists < <(ls -t1 -- "$playlists_dir")
 
     if [[ ! -f "$playlists_dir/${playlists[$1]}" ]]; then
         echo "Playlist not found."
-        exit 1;
+        exit 1
     fi
 
     IFS=$'\n'
     playlist_id="${playlists[$1]}"
-    playlist=$(cat "$playlists_dir/${playlists[$1]}" | head -n 1)
-    songs=( $(cat "$playlists_dir/${playlists[$1]}" | sed -n '2~3p') )
-    channels=( $(cat "$playlists_dir/${playlists[$1]}" | sed -n '3~3p') )
-    urls=( $(cat "$playlists_dir/${playlists[$1]}" | sed -n '4~3p') )
+    mapfile -t lines <"$playlists_dir/${playlists[$1]}"
 
-    echo "$playlist" > "$list_info_file"
+    playlist="${lines[0]}"
+
+    songs=()
+    channels=()
+    urls=()
+
+    for ((i = 1; i < ${#lines[@]}; i += 3)); do
+        songs+=("${lines[i]}")
+        channels+=("${lines[i + 1]}")
+        urls+=("${lines[i + 2]}")
+    done
+
+    echo "$playlist" >"$list_info_file"
 }
 
 function shuffle-songs() {
-    indexes=( $(shuf -i 0-$((${#songs[@]}-1))) )
+    mapfile -t indexes < <(shuf -i 0-$((${#songs[@]} - 1)))
 
     shuffled_songs=()
     shuffled_channels=()
@@ -178,7 +182,7 @@ function shuffle-songs() {
 }
 
 function show-playlists() {
-    playlists=( $(ls -t1  "$playlists_dir") )
+    mapfile -t playlists < <(ls -t1 -- "$playlists_dir")
 
     if [[ ${#playlists[@]} -eq 0 ]]; then
         show-error 'No playlist found!' -n
@@ -186,31 +190,31 @@ function show-playlists() {
     fi
 
     for i in "${!playlists[@]}"; do
-        echo "${i}: $(cat ${playlists_dir}/${playlists[$i]} | head -n 1)"
+        echo "${i}: $(head -n 1 "${playlists_dir:?}/${playlists[$i]:?}")"
     done
 }
 
 function kill-song() {
-    [[ -f $song_pid_file ]] && kill -0 "$(cat $song_pid_file)" &> /dev/null && kill $(cat $song_pid_file)
-    refresh-slstatus
+    [[ -f $song_pid_file ]] && kill -0 "$(cat "$song_pid_file")" &>/dev/null && kill "$(cat "$song_pid_file")"
+
     return 0
 }
 
 function pause-song() {
-    [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", true] }' | socat - "$song_socket_file" &> /dev/null
-    refresh-slstatus
+    [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", true] }' | socat - "$song_socket_file" &>/dev/null
+
     return 0
 }
 
 function resume-song() {
-    [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", false] }' | socat - "$song_socket_file" &> /dev/null
-    refresh-slstatus
+    [[ -S "$song_socket_file" ]] && echo '{ "command": ["set_property", "pause", false] }' | socat - "$song_socket_file" &>/dev/null
+
     return 0
 }
 
 function toggle-song() {
-    [[ -S "$song_socket_file" ]] && echo '{ "command": ["cycle", "pause"] }' | socat - "$song_socket_file" &> /dev/null
-    refresh-slstatus
+    [[ -S "$song_socket_file" ]] && echo '{ "command": ["cycle", "pause"] }' | socat - "$song_socket_file" &>/dev/null
+
     return 0
 }
 
@@ -218,21 +222,27 @@ function download-song() {
     local playlist_dir=$1
     local song_index=$2
     local total_songs=$3
-    local song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${urls[$song_index]}")
     local download_failed=false
-    local log_file=$(mktemp "${playlist_dir}/${song_id}.XXXXXX.log")
+    local song_id
+    local log_file
+
+    song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<<"${urls[$song_index]}")
+    log_file=$(mktemp "${playlist_dir}/${song_id}.XXXXXX.log")
 
     if [[ ! -f "${playlist_dir}/${song_id}" ]]; then
-        yt-dlp -f bestaudio -o "${playlist_dir}/%(id)s" "${urls[$song_index]}" &> "$log_file"
-
-        if [[ $? == 0 ]]; then
+        if yt-dlp \
+            -f bestaudio \
+            --write-thumbnail \
+            --convert-thumbnails png \
+            -o "${playlist_dir}/%(id)s" \
+            "${urls[$song_index]}" &>"$log_file"; then
             rm -f "$log_file"
         else
-            rm -f "${playlist_dir}/${song_id}"
+            rm -f "${playlist_dir}/${song_id}" "${playlist_dir}/${song_id}.png"
             download_failed=true
         fi
     fi
-    
+
     local success_count_file="${playlist_dir}/download_count.txt"
     local failure_count_file="${playlist_dir}/fail_count.txt"
     local lock_file="${playlist_dir}/download_lock"
@@ -243,12 +253,12 @@ function download-song() {
         success_count=$(<"$success_count_file")
         failure_count=$(<"$failure_count_file")
 
-        if [[ $download_failed == true ]]; then 
+        if [[ $download_failed == true ]]; then
             failure_count=$((failure_count + 1))
-            echo "$failure_count" > "$failure_count_file"
+            echo "$failure_count" >"$failure_count_file"
         else
             success_count=$((success_count + 1))
-            echo "$success_count" > "$success_count_file"
+            echo "$success_count" >"$success_count_file"
         fi
 
         send-message "Downloading...\nSuccess: ${success_count}\nFail: ${failure_count}\nTotal: ${total_songs}"
@@ -256,11 +266,11 @@ function download-song() {
 }
 
 function download-playlist() {
-    if [[ -f $download_pid_file ]] && kill -0 "$(cat $download_pid_file)" &> /dev/null; then
+    if [[ -f $download_pid_file ]] && kill -0 "$(cat "$download_pid_file")" &>/dev/null; then
         return 0
     fi
 
-    echo $$ > $download_pid_file
+    echo $$ >"$download_pid_file"
     local selected_playlist_index="$1"
 
     if [[ ! "$selected_playlist_index" =~ ^[0-9]+$ ]]; then
@@ -269,7 +279,7 @@ function download-playlist() {
         exit 1
     fi
 
-    playlists=( $(ls -t1 "$playlists_dir") )
+    mapfile -t playlists < <(ls -t1 -- "$playlists_dir")
 
     if [[ ! -f "$playlists_dir/${playlists[$selected_playlist_index]}" ]]; then
         echo "Playlist not found."
@@ -281,8 +291,8 @@ function download-playlist() {
     get-songs "$selected_playlist_index"
     send-message 'Downloading...'
 
-    echo "0" > "${playlist_dir}/download_count.txt"
-    echo "0" > "${playlist_dir}/fail_count.txt"
+    echo "0" >"${playlist_dir}/download_count.txt"
+    echo "0" >"${playlist_dir}/fail_count.txt"
 
     rm -f "${playlist_dir}/"*.log
 
@@ -303,62 +313,72 @@ function download-playlist() {
     wait
 
     local final_success_count
-    [[ -f "${playlist_dir}/download_count.txt" ]] && read -r final_success_count < "${playlist_dir}/download_count.txt"
+    [[ -f "${playlist_dir}/download_count.txt" ]] && read -r final_success_count <"${playlist_dir}/download_count.txt"
 
     local final_failure_count
-    [[ -f "${playlist_dir}/fail_count.txt" ]] && read -r final_failure_count < "${playlist_dir}/fail_count.txt"
+    [[ -f "${playlist_dir}/fail_count.txt" ]] && read -r final_failure_count <"${playlist_dir}/fail_count.txt"
 
     send-message "Downloaded!\nSuccess: ${final_success_count}\nFail: ${final_failure_count}\nTotal: ${total_songs}"
 
-    local urls_str="${urls[@]}"
     local video_ids=()
 
-    for url in "${urls[@]}"; do
-        video_ids+=( $(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${url}") )
-    done
+    mapfile -t video_ids < <(
+        for url in "${urls[@]}"; do
+            grep -Po '^(https://)?(www\.)?(music\.)?(youtube\.com/watch\?v=)?\K[A-Za-z0-9_-]+' <<<"$url"
+        done
+    )
 
-    for file_name in $(ls -1 "$playlist_dir"); do
-        local is_valid_video_id=false
-        
+    shopt -s nullglob
+    for file_path in "$playlist_dir"/*; do
+        file_name="${file_path##*/}"
+        is_valid_video_id=false
+
         for video_id in "${video_ids[@]}"; do
-            if [[ "$video_id" == "$file_name" || "${video_id}.log" == "$file_name" ]]; then
+            if [[ "$video_id" == "$file_name" || "${video_id}.png" == "$file_name" || "${video_id}.log" == "$file_name" ]]; then
                 is_valid_video_id=true
                 break
             fi
         done
 
         if ! $is_valid_video_id; then
-            rm -f "${playlist_dir}/${file_name}"
+            rm -f "$file_path" "$file_path.png"
         fi
     done
-    
+
     return 0
 }
 
 function play-song() {
-    trap kill-song RETURN
     song_index="$1"
 
-    song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<< "${urls[$song_index]}")
+    (
+        trap kill-song EXIT
 
-    if [[ -f "${cache_dir}/${playlist_id}/${song_id}" ]]; then
-        song="${cache_dir}/${playlist_id}/${song_id}"
-    else
-        song="${urls[$song_index]}"
-    fi
+        song_id=$(grep -Po "^(https://)?(www.)?(music.)?(youtube.com/watch\?v=)?\K[A-Za-z0-9_-]+" <<<"${urls[$song_index]}")
 
-    mpv --audio-device=pulse --no-terminal --no-video --input-ipc-server="$song_socket_file" --cache-secs=60 "$song" &
-    song_pid=$! && echo $song_pid > $song_pid_file
+        if [[ -f "${cache_dir}/${playlist_id}/${song_id}" ]]; then
+            song="${cache_dir}/${playlist_id}/${song_id}"
+        else
+            song="${urls[$song_index]}"
+        fi
 
-    echo -e "${songs[$song_index]}\n${channels[$song_index]}\n$((song_index + 1))/${#songs[@]}" | tee $song_info_file
-    refresh-slstatus
-    send-message "${songs[$song_index]} - ${channels[$song_index]}"
+        mpv --audio-device=pulse --no-terminal --no-video \
+            --force-media-title="${songs[$song_index]} - ${channels[$song_index]}" \
+            --cover-art-auto=exact \
+            --input-ipc-server="$song_socket_file" --cache-secs=60 "$song" &
 
-    wait $song_pid
-    exit_code=$?
+        song_pid=$! && echo $song_pid >"$song_pid_file"
 
-    echo
-    return $exit_code
+        echo -e "${songs[$song_index]}\n${channels[$song_index]}\n$((song_index + 1))/${#songs[@]}" | tee "$song_info_file"
+
+        send-message "${songs[$song_index]} - ${channels[$song_index]}"
+
+        wait $song_pid
+        exit_code=$?
+
+        echo
+        return $exit_code
+    )
 }
 
 function get-info() {
@@ -417,7 +437,7 @@ function main() {
 
     echo
 
-    echo 0 > "$current_index_file"
+    echo 0 >"$current_index_file"
 
     total=${#songs[@]}
 
@@ -425,11 +445,11 @@ function main() {
         index=$(cat "$current_index_file")
 
         if [[ $index -ge $total ]]; then
-            break;
+            break
         fi
 
         play-song "$index" &&
-        echo $(( index + 1 )) > "$current_index_file"
+            echo $((index + 1)) >"$current_index_file"
     done
 
     echo "PLAYLIST ENDED!"
@@ -439,7 +459,7 @@ function main() {
 function next-song() {
     if [[ -f "$current_index_file" ]]; then
         index=$(cat "$current_index_file")
-        echo $(( index + 1 )) > "$current_index_file"
+        echo $((index + 1)) >"$current_index_file"
         kill-song
     fi
 
@@ -450,8 +470,8 @@ function prev-song() {
     if [[ -f "$current_index_file" ]]; then
         index=$(cat "$current_index_file")
 
-        if [[ $index -gt 0  ]]; then
-            echo $(( index - 1 )) > "$current_index_file"
+        if [[ $index -gt 0 ]]; then
+            echo $((index - 1)) >"$current_index_file"
             kill-song
         fi
     fi
@@ -463,101 +483,100 @@ playlist_index=0
 
 while [[ "$1" != "" ]]; do
     case "$1" in
-        -a | --add)
-            shift
-            add-playlist "$1"
-            exit 0
-            ;;
-        --delete)
-            shift
-            delete-playlist "$1"
-            exit 0
-            ;;
-        --download)
-            shift
-            download-playlist "$1"
-            exit 0
-            ;;
-        --delete-download)
-            shift
-            delete-download "$1"
-            exit 0
-            ;;
-        -d | --daemon)
-            daemon=1
-            ;;
-        -p | --play)
-            shift
-            playlist_index="$1"
-            ;;
-        -l | --list)
-            show-playlists
-            exit 0
-            ;;
-        -n | --next)
-            next-song
-            exit 0
-            ;;
-        -b | --prev)
-            prev-song
-            exit 0
-            ;;
-        -z | --pause)
-            pause-song
-            exit 0
-            ;;
-        -r | --resume)
-            resume-song
-            exit 0
-            ;;
-        -t | --toggle)
-            toggle-song
-            exit 0
-            ;;
-        -i | --info)
-            get-info
-            exit 0
-            ;;
-        -s | --shuffle)
-            shuffle=1
-            ;;
-        -k | --kill)
-            if [[ ! -f $main_pid_file ]]; then
-                show-error "No running instance found!" -n
-                exit 1
-            fi
-
-            kill "$(cat $main_pid_file)" &> /dev/null
-            exit 0
-            ;;
-        --notify)
-            notifications=1
-            ;;
-        -h | --help)
-            help-menu
-            exit 0
-            ;;
-        *)
-            show-error 'Invalid option!' -n
-            show-error "Use ${cli_name} -h for help" -n
+    -a | --add)
+        shift
+        add-playlist "$1"
+        exit 0
+        ;;
+    --delete)
+        shift
+        delete-playlist "$1"
+        exit 0
+        ;;
+    --download)
+        shift
+        download-playlist "$1"
+        exit 0
+        ;;
+    --delete-download)
+        shift
+        delete-download "$1"
+        exit 0
+        ;;
+    -d | --daemon)
+        daemon=1
+        ;;
+    -p | --play)
+        shift
+        playlist_index="$1"
+        ;;
+    -l | --list)
+        show-playlists
+        exit 0
+        ;;
+    -n | --next)
+        next-song
+        exit 0
+        ;;
+    -b | --prev)
+        prev-song
+        exit 0
+        ;;
+    -z | --pause)
+        pause-song
+        exit 0
+        ;;
+    -r | --resume)
+        resume-song
+        exit 0
+        ;;
+    -t | --toggle)
+        toggle-song
+        exit 0
+        ;;
+    -i | --info)
+        get-info
+        exit 0
+        ;;
+    -s | --shuffle)
+        shuffle=1
+        ;;
+    -k | --kill)
+        if [[ ! -f $main_pid_file ]]; then
+            show-error "No running instance found!" -n
             exit 1
-            ;;
+        fi
+
+        kill "$(cat "$main_pid_file")" &>/dev/null
+        exit 0
+        ;;
+    --notify)
+        notifications=1
+        ;;
+    -h | --help)
+        help-menu
+        exit 0
+        ;;
+    *)
+        show-error 'Invalid option!' -n
+        show-error "Use ${cli_name} -h for help" -n
+        exit 1
+        ;;
     esac
 
     shift
 done
 
-if [[ -f $main_pid_file ]] && kill -0 $(cat $main_pid_file) &> /dev/null; then
-    echo "There is an instance already running ($(cat $main_pid_file))."
+if [[ -f $main_pid_file ]] && kill -0 "$(cat "$main_pid_file")" &>/dev/null; then
+    echo "There is an instance already running ($(cat "$main_pid_file"))."
     exit 1
 fi
 
 if [[ $daemon -eq 1 ]]; then
-    main &>"$main_log_file" & disown
-    echo $! > $main_pid_file
+    main &>"$main_log_file" &
+    disown
+    echo $! >"$main_pid_file"
 else
-    echo $$ > $main_pid_file
+    echo $$ >"$main_pid_file"
     main
 fi
-
-exit 0
