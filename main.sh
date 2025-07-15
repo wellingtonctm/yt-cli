@@ -209,7 +209,14 @@ function resume-song() {
 }
 
 function toggle-song() {
-    [[ -S "$song_socket_file" ]] && echo '{ "command": ["cycle", "pause"] }' | socat - "$song_socket_file" &> /dev/null
+    if [[ ! -S "$song_socket_file" ]]; then
+        playlist_index=0
+        main &>"$main_log_file" & disown
+        echo $! > "$main_pid_file"
+    else
+        echo '{ "command": ["cycle", "pause"] }' | socat - "$song_socket_file" &> /dev/null
+    fi
+
     refresh-slstatus
     return 0
 }
